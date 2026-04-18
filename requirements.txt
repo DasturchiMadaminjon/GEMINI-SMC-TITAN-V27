@@ -1,0 +1,16 @@
+aiohttp==3.13.5
+ccxt==4.5.48
+httpx==0.28.1
+mplfinance==0.12.10b0
+numpy==1.26.4
+pandas==3.0.2
+PyYAML==6.0.3
+requests==2.33.1
+yfinance==1.2.1
+python-dotenv>=1.0.0
+flask>=2.3.0
+google-genai>=1.0.0
+google-generativeai>=0.4.0
+typing-extensions>=4.8.0
+
+# MetaTrader5 (Faqat Windows uchun kerak)

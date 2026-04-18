@@ -1,0 +1,42 @@
+{
+    "symbols": {
+        "XAU/USD": {
+            "price": 2500.5
+        },
+        "EUR/USD": {
+            "price": 0.0
+        },
+        "GBP/USD": {
+            "price": 0.0
+        },
+        "BTC/USDT": {
+            "price": 0.0
+        },
+        "ETH/USDT": {
+            "price": 0.0
+        },
+        "XRP/USDT": {
+            "price": 0.0
+        },
+        "USD/JPY": {
+            "price": 0.0
+        },
+        "USD/CAD": {
+            "price": 0.0
+        },
+        "USD/CHF": {
+            "price": 0.0
+        },
+        "AUD/USD": {
+            "price": 0.0
+        },
+        "NZD/USD": {
+            "price": 0.0
+        }
+    },
+    "terminal": {
+        "balance": 5200.0
+    },
+    "ai_requests": [],
+    "loss_streak": 0
+}

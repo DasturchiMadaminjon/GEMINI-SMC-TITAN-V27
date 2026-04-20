@@ -108,8 +108,8 @@ class TelegramNotifier:
                         elif m:
                             t = m.get('text', '')
                             is_admin = uid in self.admins
-                            ADMIN_KB = {'keyboard': [[{'text': "📊 Texnik Tahlil"}, {'text': "🌐 Fundamental"}],[{'text': "⚡ Scalping AI"}, {'text': "💬 AI Chat Assistant"}],[{'text': "⚖️ Risk Status"}, {'text': "📖 Qo'llanma"}],[{'text': "🚨 PANIC CLOSE ALL"}]], 'resize_keyboard': True}
-                            USER_KB = {'keyboard': [[{'text': "📊 Texnik Tahlil"}, {'text': "🌐 Fundamental"}],[{'text': "💬 AI Chat Assistant"}, {'text': "📖 Qo'llanma"}]], 'resize_keyboard': True}
+                            ADMIN_KB = {'keyboard': [[{'text': "📊 Texnik Tahlil"}, {'text': "🌐 Fundamental"}],[{'text': "⚡ Scalping AI"}, {'text': "💬 AI Chat Assistant"}],[{'text': "⚖️ Risk Status"}, {'text': "📈 Hisobot (Analytics)"}],[{'text': "🚨 PANIC CLOSE ALL"}]], 'resize_keyboard': True}
+                            USER_KB = {'keyboard': [[{'text': "📊 Texnik Tahlil"}, {'text': "🌐 Fundamental"}],[{'text': "💬 AI Chat Assistant"}, {'text': "📈 Hisobot (Analytics)"}]], 'resize_keyboard': True}
                             
                             if t == "/start":
                                 kb = ADMIN_KB if is_admin else USER_KB
@@ -129,8 +129,9 @@ class TelegramNotifier:
                                     else:
                                         with self.lock: b = bs['terminal']['balance']
                                         await self.send(f"⚖️ <b>Balance: ${b}</b>", cid=uid)
-                            elif any(x in t for x in ["Qo'llanma", "Yo'riqnoma", "Manual"]):
-                                await self.send("📖 Yo'riqnoma: Tugmani bosing, instrumentni tanlang va kuting.", cid=uid)
+                            elif any(x in t for x in ["Hisobot", "Analytics"]):
+                                with self.lock: bs['ai_requests'].append({'type': 'analytics', 'symbol': 'KNOWLEDGE_BASE', 'chat_id': uid, 'text': 'Iltimos, Analytics moduligacha xulosa bering.'})
+                                await self.send("📈 <i>Fayllardan loglar yig'ilmoqda... Fonda AI siz uchun yozma hisobot tuzmoqda...</i>\n(Bu odatda 15 soniya atrofida vaqt oladi)", cid=uid)
                             elif any(x in t for x in ["Chat Assistant", "💬 AI Chat"]):
                                 await self.send("💬 Savol yoki rasm (chart) yuboring.", cid=uid)
                             elif not m.get('text', '').startswith('/') or m.get('photo'):

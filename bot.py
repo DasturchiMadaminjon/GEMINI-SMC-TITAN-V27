@@ -14,18 +14,36 @@ class GeminiBot:
         
         # Multi-API Support: List yoki bitta stringni o'qish
         gem_cfg = self.cfg.get('gemini_ai', {})
-        raw_keys = gem_cfg.get('api_keys', []) # List ko'rinishida: ["KEY1", "KEY2"]
-        single_key = gem_cfg.get('api_key') or os.getenv('GEMINI_API_KEY')
+        
+        # settings.yaml dan kalitlarni ham tekshiramiz, ham .env ni tekshiramiz
+        raw_keys = gem_cfg.get('api_keys', [])
+        from dotenv import load_dotenv
+        load_dotenv() # Force load .env
+        single_key = os.getenv('GEMINI_API_KEY')
         
         # Barcha kalitlarni bitta ro'yxatga yig'ish
         self.api_keys = []
-        if isinstance(raw_keys, list): self.api_keys.extend(raw_keys)
-        if single_key: self.api_keys.append(single_key)
+        if isinstance(raw_keys, list): self.api_keys.extend([k for k in raw_keys if len(k) > 20])
+        
+        # Vergul (,) bilan ajratilgan ko'p kalitlarni qo'llab-quvvatlash
+        if single_key:
+            for k in single_key.split(','):
+                k = k.strip()
+                if len(k) > 20: self.api_keys.append(k)
+                
         self.api_keys = list(set(self.api_keys)) # Dublikatlarni olib tashlash
         
+        # BU MUHIM: topilgan kalitlarni cfg ga qaytarib yozamiz
+        if 'gemini_ai' not in self.cfg: self.cfg['gemini_ai'] = {}
         self.cfg['gemini_ai']['api_keys'] = self.api_keys
         
+        print(f"🔑 [AUTH] Gemini API kalitlari yuklandi: {len(self.api_keys)} ta")
+        if len(self.api_keys) == 0:
+            print("⚠️ [WARNING] Hech qanday API kalit topilmadi! .env faylini tekshiring.")
+        
         self.bot_token = self.cfg.get('telegram', {}).get('bot_token') or os.getenv('TELEGRAM_BOT_TOKEN')
+        self.cfg['telegram']['bot_token'] = self.bot_token
+        
         self.cfg['telegram']['bot_token'] = self.bot_token
         
         # Xotirani yuklash (Memory Persistence)
@@ -67,14 +85,20 @@ class GeminiBot:
 
         await self.telegram.send_action(uid, "upload_photo" if img else "typing")
 
-        prompts = {
-            'technical':   f"Instrument: {s} | Joriy narx: {p}\nMana oxirgi 100 ta sham charti. SMC metodikasi asosida to'liq texnik tahlil ber.",
-            'scalping':    f"Instrument: {s} | Joriy narx: {p}\nMana oxirgi 100 ta sham charti. M5/M15 uchun tezkor scalping kirish rejasini ber.",
-            'fundamental': f"Instrument: {s} | Joriy narx: {p}\nFAQAT makro drayverlar (DXY, FED, yangiliklar) asosida fundamental tahlil qil. SMC aytma.",
-            'chat':        f"{req.get('text', '')}{'  [Rasm yuborildi — chartni tahlil qil]' if img else ''}"
-        }
-        
-        prompt = prompts.get(t, prompts['technical'])
+        if t == 'analytics':
+            from utils.analytics import generate_trade_report
+            with self.lock:
+                prompt_text = generate_trade_report(self.bot_state)
+            img = None # Analytics uses text data
+            prompt = prompt_text
+        else:
+            prompts = {
+                'technical':   f"Instrument: {s} | Joriy narx: {p}\nMana oxirgi 100 ta sham charti. SMC metodikasi asosida to'liq texnik tahlil ber.",
+                'scalping':    f"Instrument: {s} | Joriy narx: {p}\nMana oxirgi 100 ta sham charti. M5/M15 uchun tezkor scalping kirish rejasini ber.",
+                'fundamental': f"Instrument: {s} | Joriy narx: {p}\nFAQAT makro drayverlar (DXY, FED, yangiliklar) asosida fundamental tahlil qil. SMC aytma.",
+                'chat':        f"{req.get('text', '')}{'  [Rasm yuborildi — chartni tahlil qil]' if img else ''}"
+            }
+            prompt = prompts.get(t, prompts['technical'])
 
         # Exponential Backoff: 503/429 bo'lsa 3 marta qayta urinish
         max_retries = 3

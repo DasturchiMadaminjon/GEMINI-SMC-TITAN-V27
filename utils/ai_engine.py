@@ -27,8 +27,21 @@ class AIEngine:
         if self.api_keys:
             genai.configure(
                 api_key=self.api_keys[self.current_key_index],
-                transport='rest'  # MUHIM: Proxy orqali faqat REST barqaror ishlaydi
+                transport='rest'
             )
+            # AVTO-ANIQLASH: Ishlaydigan modelni o'zi topsin
+            try:
+                available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                if available:
+                    # 'gemini-1.5-flash' yoki shunga o'xshashini qidirish, bo'lmasa birinchisi
+                    best_match = next((m for m in available if "flash" in m), available[0])
+                    self.model_name = best_match.replace("models/", "")
+                    print(f"✅ [AI AUTO] Ishchi model aniqlandi: {self.model_name}")
+                else:
+                    raise Exception("Hech qanday model topilmadi")
+            except Exception as e:
+                print(f"⚠️ [AI MODELS] Avto-aniqlash xatosi: {e}")
+                
             self.model = genai.GenerativeModel(self.model_name)
         else:
             self.model = None
@@ -96,7 +109,14 @@ class AIEngine:
 2. Foydalanuvchi SAVOL berganda — sodda va ta'limiy tilda javob bering
 3. Javob uzun bo'lmassin, aniq va foydali bo'lsin
 4. Har doim O'zbek tilida yozing
-5. Tahlil oxirida qisqa savdo tavsiyasi bering"""
+5. Tahlil oxirida qisqa savdo tavsiyasi bering""",
+
+            "analytics": """Siz yuqori malakali "Hedge Fund Menejeri"siz. Sizga robotning oxirgi 50 ta bitimi (signallari) statistikasi beriladi.
+Qoidalaringiz:
+1. Qaysi instrument ko'p foyda yoki zarar keltirganini baholang.
+2. Nega bunday bo'lganligini ehtimoliy sababini ayting.
+3. Men strategiyani qanday o'zgartirish kerakligi haqida amaliy va professional tavsiya bering.
+4. Javobingiz aniq, statistik va 3 ta abzasdan iborat bo'lsin."""
         }
 
         # Draft Mode — API limit tugaganda (barqaror zaxira)
@@ -114,8 +134,10 @@ class AIEngine:
                 api_key=self.api_keys[self.current_key_index],
                 transport='rest'
             )
-            self.model = genai.GenerativeModel(self.model_name)
-            logger.info(f"API key rotated → index {self.current_key_index}")
+            # Model nomini tozalab yangitdan yaratish
+            clean_name = self.model_name.replace("models/", "")
+            self.model = genai.GenerativeModel(clean_name)
+            logger.info(f"API key rotated → index {self.current_key_index} (Model: {clean_name})")
             return True
         return False
 
@@ -163,8 +185,11 @@ class AIEngine:
                         continue
                 break
 
-        # Barcha kalitlar tugaganda Draft Mode
-        if "429" in last_error or "404" in last_error or "503" in last_error:
+        # Barcha kalitlar tugaganda xatoni ko'tarish (bot.py kutib qayta urinishi uchun)
+        if "429" in last_error or "503" in last_error:
+            raise Exception(f"API_LIMIT_REACHED: {last_error}")
+            
+        if "404" in last_error:
             logger.error(f"FINAL AI XATOSI: {last_error}")
             return self.drafts.get(context_type, self.drafts["technical"])
 

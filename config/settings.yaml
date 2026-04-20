@@ -89,11 +89,8 @@ log:
 gemini_ai:
   enabled: true
   
-  # MULTI-API TIZIMI — 3 ta haqiqiy kalit (limit tugasa keyingisiga o'tadi)
-  api_keys: 
-    - "AIzaSyBCQpYzTI0lB9jdka7uDkCACXFqLsdBelw"
-    - "AIzaSyA4-sxUCRhZRpYrz0eNwuVSVZtN_Ub-kv8"
-    - "AIzaSyCjMrgE_gIhsfQiTutJoB5-8PkUcekrGqk"
+  # MULTI-API TIZIMI — Barcha haqiqiy kalitlar .env faylidan okunadi!
+  api_keys: []
 
-  api_key: "AIzaSyBCQpYzTI0lB9jdka7uDkCACXFqLsdBelw"
-  model: "gemini-flash-latest"  # ✅ Tasdiqlangan (22:09 test)
+  api_key: ""
+  model: "gemini-pro"  # ✅ Free Tier uchun eng barqaror model

@@ -1,37 +1,37 @@
 {
     "symbols": {
         "XAU/USD": {
-            "price": 2500.5
+            "price": 4813.2998046875
         },
         "EUR/USD": {
-            "price": 0.0
+            "price": 1.175364375114441
         },
         "GBP/USD": {
-            "price": 0.0
+            "price": 1.348832368850708
         },
         "BTC/USDT": {
-            "price": 0.0
+            "price": 74240.5234375
         },
         "ETH/USDT": {
-            "price": 0.0
+            "price": 2268.27001953125
         },
         "XRP/USDT": {
-            "price": 0.0
+            "price": 1.398300051689148
         },
         "USD/JPY": {
-            "price": 0.0
+            "price": 158.98899841308594
         },
         "USD/CAD": {
-            "price": 0.0
+            "price": 1.3702499866485596
         },
         "USD/CHF": {
-            "price": 0.0
+            "price": 0.7832300066947937
         },
         "AUD/USD": {
-            "price": 0.0
+            "price": 0.7145562171936035
         },
         "NZD/USD": {
-            "price": 0.0
+            "price": 0.5869922637939453
         }
     },
     "terminal": {

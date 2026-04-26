@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+logs/
+data/
+venv/
+signal_env/
+
+bilim_bazasi/*.pdf

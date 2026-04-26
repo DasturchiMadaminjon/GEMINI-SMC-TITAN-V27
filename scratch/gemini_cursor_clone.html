@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cursor Clone - Enterprise Edition</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <!-- Markdown Renderer -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-base: #1e1e1e;
+            --bg-sidebar: #181818;
+            --bg-panel: #252526;
+            --bg-hover: #2a2d2e;
+            --border-color: #333333;
+            --text-main: #cccccc;
+            --text-muted: #858585;
+            --accent: #007acc;
+            --ai-accent: #10b981;
+        }
+        body { background-color: var(--bg-base); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden; margin: 0; }
+        .custom-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #424242; border: 2px solid var(--bg-base); border-radius: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+        .chat-markdown pre { background: #0d1117; padding: 12px; border-radius: 8px; overflow-x: auto; border: 1px solid #30363d; margin: 10px 0; }
+        .chat-markdown code { font-family: 'Consolas', monospace; font-size: 13px; }
+        .pulse-anim { animation: pulseIcon 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulseIcon { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #10b981; } 50% { opacity: 0.5; text-shadow: none; } }
+        /* Dropdown menus */
+        .dropdown { position: absolute; top: 100%; left: 0; background: var(--bg-panel); border: 1px solid var(--border-color); box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 50; border-radius: 4px; padding: 4px 0; min-width: 200px; }
+        .dropdown-item { padding: 6px 16px; font-size: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: var(--text-main); }
+        .dropdown-item:hover { background: var(--bg-hover); color: white; }
+        .dropdown-shortcut { color: var(--text-muted); font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div id="root" class="h-screen w-screen flex flex-col"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        let globalEditorInstance = null;
+
+        const CodeEditor = ({ content, language = 'javascript', onChange }) => {
+            const editorRef = useRef(null);
+            const monacoRef = useRef(null);
+
+            useEffect(() => {
+                if (!window.require) return;
+                window.require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+                window.require(['vs/editor/editor.main'], function(monaco) {
+                    monacoRef.current = monaco.editor.create(editorRef.current, {
+                        value: content,
+                        language: language,
+                        theme: 'vs-dark',
+                        minimap: { enabled: false },
+                        automaticLayout: true,
+                        fontSize: 14,
+                        fontFamily: 'Consolas, "Courier New", monospace',
+                        scrollBeyondLastLine: false,
+                        wordWrap: "on"
+                    });
+                    
+                    globalEditorInstance = monacoRef.current;
+                    monacoRef.current.onDidChangeModelContent(() => {
+                        onChange(monacoRef.current.getValue());
+                    });
+                });
+                return () => { if (monacoRef.current) monacoRef.current.dispose(); globalEditorInstance = null; };
+            }, []);
+
+            useEffect(() => {
+                if (monacoRef.current && content !== monacoRef.current.getValue()) {
+                    const position = monacoRef.current.getPosition();
+                    monacoRef.current.setValue(content);
+                    if (position) monacoRef.current.setPosition(position);
+                }
+                if (monacoRef.current && window.monaco && window.monaco.editor) {
+                    window.monaco.editor.setModelLanguage(monacoRef.current.getModel(), language);
+                }
+            }, [content, language]);
+
+            return <div ref={editorRef} className="w-full h-full"></div>;
+        };
+
+        const App = () => {
+            // Configuration & State
+            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_cursor_key') || '');
+            const [showSettings, setShowSettings] = useState(!localStorage.getItem('gemini_cursor_key'));
+            const [showInstructions, setShowInstructions] = useState(false);
+            const [selectedModel, setSelectedModel] = useState(localStorage.getItem('gemini_selected_model') || 'models/gemini-2.5-flash');
+            
+            // FS State
+            const [workspaceHandle, setWorkspaceHandle] = useState(null);
+            const [files, setFiles] = useState([]);
+            const [activeFileHandle, setActiveFileHandle] = useState(null);
+            const [activeFileName, setActiveFileName] = useState("Salom_Dunyo.js");
+            const [activeContent, setActiveContent] = useState("// Cursor Enterprise Kloniga Xush Kelibsiz!\n// Barcha knopkalar ishlaydi. \n// 'Terminal' panelida diagnostikani tekshirishingiz mumkin.\n\nconsole.log('AI is perfectly working!');");
+            const [isUnsaved, setIsUnsaved] = useState(false);
+
+            // UI State
+            const [chatOpen, setChatOpen] = useState(true);
+            const [terminalOpen, setTerminalOpen] = useState(true);
+            const [activeMenu, setActiveMenu] = useState(null);
+
+            // Super Chat System State (Sessions & History)
+            const [chatSessions, setChatSessions] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('gemini_cursor_chat_sessions');
+                    if (saved) return JSON.parse(saved);
+                } catch(e) {}
+                const initialSess = { 
+                    id: Date.now(), 
+                    title: "Boshlang'ich suhbat", 
+                    messages: [{ id: 1, role: 'ai', text: "Salom! Multichat va o'chirish funksiyasi ishga tushirildi! Siz endi eskisini yo'qotmasdan yangi chat ochishingiz, kerakmas savollarni bittalab o'chirishingiz yoki butun suhbatni o'chirishingiz mumkin!" }] 
+                };
+                return [initialSess];
+            });
+            const [activeSessionId, setActiveSessionId] = useState(() => {
+                const arr = JSON.parse(localStorage.getItem('gemini_cursor_chat_sessions') || '[]');
+                return arr.length > 0 ? arr[0].id : null;
+            });
+            const [showChatHistory, setShowChatHistory] = useState(false);
+
+            const activeSession = chatSessions.find(s => s.id === activeSessionId) || chatSessions[0];
+            const messages = activeSession ? activeSession.messages : [];
+
+            // Derived updater for messages
+            const updateSessionMessages = (newMsgs, titleHint = null) => {
+                setChatSessions(prev => prev.map(s => {
+                    if (s.id === activeSessionId) {
+                        let newTitle = s.title;
+                        if (titleHint) newTitle = titleHint;
+                        return { ...s, messages: newMsgs, title: newTitle };
+                    }
+                    return s;
+                }));
+            };
+
+            const [inputValue, setInputValue] = useState('');
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [terminalLogs, setTerminalLogs] = useState([{ time: new Date().toLocaleTimeString(), text: "▶ Oyna tayyor. (Cursor Emulator v2.0).", type: "system" }]);
+
+            const chatEndRef = useRef(null);
+            const terminalEndRef = useRef(null);
+
+            useEffect(() => {
+                setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 100);
+            }, [files, messages, chatOpen, showSettings, showInstructions, terminalOpen, activeMenu, showChatHistory, chatSessions]);
+
+            useEffect(() => { if (!showChatHistory) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, showChatHistory]);
+            useEffect(() => { terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [terminalLogs, terminalOpen]);
+
+            // Save multiple sessions to localStorage automatically
+            useEffect(() => {
+                localStorage.setItem('gemini_cursor_chat_sessions', JSON.stringify(chatSessions));
+            }, [chatSessions]);
+
+            // Click outside to close menus
+            useEffect(() => {
+                const handleClickOutside = () => setActiveMenu(null);
+                document.addEventListener('click', handleClickOutside);
+                return () => document.removeEventListener('click', handleClickOutside);
+            }, []);
+
+            const addLog = (text, type = 'info') => {
+                setTerminalLogs(prev => [...prev, { time: new Date().toLocaleTimeString(), text, type }]);
+            };
+
+            const toggleMenu = (e, menuName) => {
+                e.stopPropagation();
+                setActiveMenu(activeMenu === menuName ? null : menuName);
+            };
+
+            // --- Menu Actions ---
+            // Hidden input reference for fallback folder picking
+            const folderInputRef = useRef(null);
+
+            const handleFallbackFolderSelect = async (e) => {
+                const selectedFiles = Array.from(e.target.files);
+                if (selectedFiles.length === 0) return;
+                
+                setWorkspaceHandle({ name: "Lokal Papka" });
+                
+                const fakeHandles = [];
+                for (const f of selectedFiles) {
+                    const relative = f.webkitRelativePath || "";
+                    if (relative.includes('node_modules/') || relative.includes('.git/') || relative.includes('.venv/') || relative.includes('.idea/') || relative.includes('__pycache__/')) continue;
+
+                    // Faqat oxirgi fayl nomini olish yoki to'liq yo'lini ko'rsatish
+                    const displayname = relative.length > 0 ? relative.split('/').slice(-2).join('/') : f.name;
+
+                    fakeHandles.push({
+                        name: displayname,
+                        kind: 'file',
+                        getFile: async () => f,
+                        isFallback: true
+                    });
+                }
+
+                fakeHandles.sort((a, b) => a.name.localeCompare(b.name));
+                
+                // Limit for performance
+                let finalFiles = fakeHandles;
+                if (fakeHandles.length > 300) {
+                    addLog(`Ogohlantirish: ${fakeHandles.length} ta fayl topildi. Brauzer qotib qolmasligi uchun faqata dastlabki 300 tasi chap panelda ko'rsatildi! (.venv va h.k lar hisobga olinmadi)`, 'warn');
+                    finalFiles = fakeHandles.slice(0, 300);
+                } else {
+                    addLog(`Papka ulandi: jami ${finalFiles.length} ta aktiv fayl yuklandi.`, 'success');
+                }
+                setFiles(finalFiles);
+            };
+
+            const handleOpenFolder = async () => {
+                if (!window.showDirectoryPicker) {
+                    addLog("Brauzerda to'g'ridan to'g'ri fayl tizimi himoyalangan ('file://' muhiti). Eski Standart papka mexanizmi (Fallback) ochilmoqda...", 'warn');
+                    if (folderInputRef.current) folderInputRef.current.click();
+                    return;
+                }
+                
+                try {
+                    const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    setWorkspaceHandle(dirHandle);
+                    const fileEntries = [];
+                    for await (const entry of dirHandle.values()) {
+                        if (entry.kind === 'file') fileEntries.push(entry);
+                    }
+                    fileEntries.sort((a, b) => a.name.localeCompare(b.name));
+                    setFiles(fileEntries);
+                    addLog(`Papka ulandi: ${dirHandle.name}`, 'info');
+                } catch (e) {
+                    if (e.name !== 'AbortError') {
+                        addLog(`Zamonaviy File API ruxsat bermadi: ${e.message}. (Papka o'qilganda ichida .venv yo node_modules bo'lsa qotishi mumkin, Standart usulga o'tilmoqda...)`, 'error');
+                        if (folderInputRef.current) folderInputRef.current.click();
+                    }
+                }
+            };
+
+            const handleOpenFile = async (fileHandle) => {
+                try {
+                    addLog(`Fayl o'qilmoqda: ${fileHandle.name}...`, 'system');
+                    const file = await fileHandle.getFile();
+                    
+                    let text = "Bo'sh yoki o'qish xatosi...";
+                    if (file.text) {
+                        text = await file.text();
+                    } else {
+                        text = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = e => resolve(e.target.result);
+                            reader.onerror = e => reject(new Error("FileReader xatosi"));
+                            reader.readAsText(file);
+                        });
+                    }
+
+                    // Protect against binaries
+                    if (text.includes('\\x00') || file.size > 2000000) {
+                        addLog(`Fayl binar turdagi yoki juda xajmi katta. Uni Editorga joylab bo'lmasligi mumkin. O'qish rad etildi.`, 'warn');
+                        return;
+                    }
+
+                    setActiveFileHandle(fileHandle);
+                    setActiveFileName(fileHandle.name);
+                    setActiveContent(text);
+                    setIsUnsaved(false);
+                    addLog(`✅ Kod oynaga muvaffaqiyatli tortib kelindi: ${fileHandle.name}`, 'success');
+                } catch (e) { 
+                    addLog(`Faylni ochish/o'qish rostdan ham imkonsiz. Sabab: ${e.message}`, 'error'); 
+                    console.error("FAIL", e);
+                }
+            };
+
+            const handleCreateFile = async () => {
+                if (!workspaceHandle) {
+                    return alert("Avval papka ochishingiz kerak ('File' -> 'Open Folder').");
+                }
+                const name = prompt("Yangi fayl nomini kiriting (masalan, script.js yoki index.html):", "yangi.html");
+                if (!name) return;
+                try {
+                    // Fallback create mock
+                    if (workspaceHandle.isFallback || !workspaceHandle.getFileHandle) {
+                         const f = new File([`<!-- ${name} -->\n<h1>Yangi fayl</h1>`], name, { type: "text/plain" });
+                         setFiles(prev => [...prev, { name: name, kind: 'file', getFile: async()=>f, isFallback: true }].sort((a,b)=>a.name.localeCompare(b.name)));
+                         addLog(`Zaxira fayl (Faqat xotirada) yaratildi: ${name}`, 'success');
+                         return;
+                    }
+
+                    const newHandle = await workspaceHandle.getFileHandle(name, { create: true });
+                    const writable = await newHandle.createWritable();
+                    await writable.write(`<!-- ${name} yaratildi... -->\n`);
+                    await writable.close();
+                    setFiles(prev => [...prev, newHandle].sort((a, b) => a.name.localeCompare(b.name)));
+                    handleOpenFile(newHandle);
+                    addLog(`Fayl yaratildi: ${name}`, 'success');
+                } catch (e) { addLog(`Fayl yasashda xato: ${e.message}`, 'error'); }
+            };
+
+            const handleRunCode = () => {
+                if (!activeFileName.toLowerCase().endsWith('.html') && !activeFileName.toLowerCase().endsWith('.htm')) {
+                    addLog("Faqat .html fayllarni to'g'ridan to'g'ri Brouzerda visual yurgizish mumkin!", "warn");
+                    return;
+                }
+                try {
+                    const win = window.open('', '_blank');
+                    win.document.write(activeContent);
+                    win.document.close();
+                    addLog(`🚀 Dastur muvaffaqiyatli 'Run' qilindi (Yangi oynada).`, 'success');
+                } catch (e) {
+                    addLog(`'Run' qilish imkonsiz, popup bloklangan bo'lishi mumkin: ${e.message}`, 'error');
+                }
+            };
+
+            const handleSaveFile = async () => {
+                if (!activeFileHandle) return alert("Iltimos, avval fayl oching.");
+                if (activeFileHandle.isFallback) {
+                    // Fallback save logic -> Force download
+                    const blob = new Blob([activeContent], { type: "text/plain" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = activeFileHandle.name || 'fayl.txt';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setIsUnsaved(false);
+                    addLog(`✅ Zaxira usulida saqlandi (Download qilindi): ${activeFileName}`, 'success');
+                    return;
+                }
+
+                try {
+                    const writable = await activeFileHandle.createWritable();
+                    await writable.write(activeContent);
+                    await writable.close();
+                    setIsUnsaved(false);
+                    addLog(`✅ Saqlandi: ${activeFileName}`, 'success');
+                } catch (e) { addLog(`Saqlashda xato: ${e.message}`, 'error'); }
+            };
+
+            const handleFormatDocument = () => {
+                if (globalEditorInstance) {
+                    globalEditorInstance.getAction('editor.action.formatDocument').run();
+                    addLog("Kodni tekislaw ishga tushdi", "info");
+                }
+            };
+            const clearTerminal = () => setTerminalLogs([{ time: new Date().toLocaleTimeString(), text: "▶ Terminal toza.", type: "system" }]);
+            const checkApiLimits = async () => {
+                addLog(`DIAGNOSTIKA: API ulash tekshirilmoqda (${selectedModel})...`, "system");
+                setTerminalOpen(true);
+                if (!apiKey) return addLog("Xatolik: API kalit kiritilmagan", "error");
+                try {
+                    const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                    const listData = await listRes.json();
+                    if (!listRes.ok) throw new Error(listData.error?.message || "Ulanish xatosi");
+                    const okModels = listData.models.filter(m => m.supportedGenerationMethods?.includes('generateContent')).length;
+                    addLog(`✅ MUVAFFAQIYATLI! Jami ${okModels} ta API model ishlayapti.`, "success");
+                } catch (err) {
+                    addLog(`❌ BOG'LANISHDA XATO: ${err.message}`, "error");
+                }
+            };
+
+            // Keyboard Bindings
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.key === 'F1') { e.preventDefault(); setShowInstructions(true); }
+                    if ((e.ctrlKey || e.metaKey)) {
+                        if (e.key === 's') { e.preventDefault(); handleSaveFile(); }
+                        if (e.key === 'o') { e.preventDefault(); handleOpenFolder(); }
+                        if (e.key === 'l') { e.preventDefault(); setChatOpen(prev => !prev); }
+                        if (e.key === 'j' || e.key === '`') { e.preventDefault(); setTerminalOpen(prev => !prev); } // Terminal Ctrl+J
+                    }
+                    if (e.altKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault(); handleFormatDocument();
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [activeContent, activeFileHandle]);
+
+            // --- AI Chat Logic ---
+            const determineLanguage = (filename) => {
+                if (!filename || typeof filename !== 'string') return 'javascript';
+                filename = filename.toLowerCase();
+                if (filename.endsWith('.js') || filename.endsWith('.jsx')) return 'javascript';
+                if (filename.endsWith('.ts') || filename.endsWith('.tsx')) return 'typescript';
+                if (filename.endsWith('.py')) return 'python';
+                if (filename.endsWith('.html') || filename.endsWith('.htm')) return 'html';
+                if (filename.endsWith('.css')) return 'css';
+                if (filename.endsWith('.json')) return 'json';
+                return 'plaintext';
+            };
+
+            const switchModel = (model) => {
+                setSelectedModel(model);
+                localStorage.setItem('gemini_selected_model', model);
+                addLog(`⚙️ Dvigatel (Model) o'zgardi -> ${model.replace('models/', '')}`, 'system');
+            };
+
+            // CHAT SESSIONS / DELETE ACTIONS
+            const handleNewChat = () => {
+                const newSess = {
+                    id: Date.now(),
+                    title: "Yangi suhbat",
+                    messages: [{ id: 1, role: 'ai', text: "Yangi varaq! Sizni qanday muammo qiynayapti?" }]
+                };
+                setChatSessions([newSess, ...chatSessions]);
+                setActiveSessionId(newSess.id);
+                setShowChatHistory(false);
+            };
+
+            const handleDeleteSession = (e, sessionId) => {
+                e.stopPropagation();
+                const filtered = chatSessions.filter(s => s.id !== sessionId);
+                if (filtered.length === 0) {
+                    const fallback = { id: Date.now(), title: "Boshlang'ich suhbat", messages: [{ id:1, role: 'ai', text: "Barcha xotira tozalandi." }] };
+                    setChatSessions([fallback]);
+                    setActiveSessionId(fallback.id);
+                } else {
+                    setChatSessions(filtered);
+                    if (activeSessionId === sessionId) setActiveSessionId(filtered[0].id);
+                }
+            };
+
+            const handleDeleteMessage = (msgId) => {
+                updateSessionMessages(messages.filter(m => m.id !== msgId));
+            };
+
+            const sendChat = async () => {
+                if (!inputValue.trim() || !apiKey) {
+                    if (!apiKey) setShowSettings(true);
+                    return;
+                }
+                const userText = inputValue;
+                setInputValue('');
+                const newMessages = [...messages, { id: Date.now(), role: 'user', text: userText }];
+                
+                let titleUpdate = null;
+                if (messages.length === 1) { // First user message
+                    titleUpdate = userText.substring(0, 25) + (userText.length>25?"...":"");
+                }
+                updateSessionMessages(newMessages, titleUpdate);
+                setIsGenerating(true);
+
+                try {
+                    const API_URL = `https://generativelanguage.googleapis.com/v1beta/${selectedModel}:generateContent?key=${apiKey}`;
+                    // Orqa fonda AI uchun suhbat tarixini yozma ravishda yig'ish
+                    const historyDump = messages
+                        .filter(m => m.role !== 'error' && m.id !== 1)
+                        .map(m => (m.role === 'user' ? "Sizni Savolingiz:" : "Seni Javobing (AI):") + " " + m.text)
+                        .join("\n\n---\n\n");
+
+                    const systemContext = `Sen Cursor IDE ning (VS Code kloni) O'zbek tilidagi AI Sherigisan! Dasturchiga eng kuchli yordamchi bo'l.
+
+QAT'IY BUYRUQ: Sen suhbat tarixlarini eslab qola olasan! Quyida mijoz senga shu kungacha nima haqida gaplashganini eslatib (tarix sifatida) yubormoqda. Bularni albatta hisobga ol va esla. "Men eslolmayman" deb aslo aytma.
+
+ENG MUHIM QOIDA: HECH QACHON HTML teglarini (masalan <body>, <head>, <script>), CSS uslublarni yoki JavaScript kodlarni o'zbek tiliga tarjima qilib yuborma! Koddagi <tana>, <bosh>, <skript>, <havola>, <uslub> kabi atamalar qat'iyan man etiladi. Kod o'zgarishsiz o'zining original (inglizcha) sintaksisida qolishi SHART. Faqatgina gaplaringni va suhbatni o'zbek tilida olib bor!
+
+OLDINGI SUHBATLAR TARIXI:
+"""
+${historyDump || "Suhbat endi boshlanmoqda..."}
+"""
+
+HOZIRGI KONTEKST (Ochiq Fayl - Nomi: "${activeFileName}"):
+\`\`\`${determineLanguage(activeFileName)}\n${activeContent}\n\`\`\``;
+
+                    const reqBody = {
+                        systemInstruction: { role: 'user', parts: [{ text: systemContext }] },
+                        contents: [{ role: 'user', parts: [{ text: userText }] }],
+                        generationConfig: { temperature: 0.2 }
+                    };
+
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reqBody)
+                    });
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        if (response.status === 429 || (data.error && data.error.message.includes('Quota exceeded'))) {
+                            throw new Error("Tarmoq Qutisi (Rate Limit) to'lib qoldi. 30 soniya kuting yoki modelni almashtiring.");
+                        }
+                        if (data.error?.message.includes('API key not valid')) throw new Error("Yaroqsiz API kalit (Kalitingizni Settingsdan tekshiring).");
+                        throw new Error(data.error?.message || "Noma'lum server xatosi");
+                    }
+
+                    const aiText = data.candidates[0].content.parts[0].text;
+                    updateSessionMessages([...newMessages, { id: Date.now()+1, role: 'ai', text: aiText }]);
+                } catch (err) {
+                    updateSessionMessages([...newMessages, { id: Date.now()+1, role: 'error', text: "❌ XATOLIK: " + err.message }]);
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            const replaceEditorCode = (code) => {
+                setActiveContent(code);
+                setIsUnsaved(true);
+                addLog(`📥 KOD FAYLGA JOYLASHDI. (Saqlashni unutmang)`, 'success');
+            };
+
+            const renderMessage = (msg) => {
+                if (msg.role === 'error') return <div className="text-red-400 p-3 bg-red-900/20 rounded-lg">{msg.text}</div>;
+                if (msg.role === 'user') return <div className="text-gray-100">{msg.text}</div>;
+
+                const segments = msg.text.split(/(```[\s\S]*?```)/g);
+                return segments.map((seg, idx) => {
+                    if (seg.startsWith('```')) {
+                        const match = seg.match(/```(\w+)?\n([\s\S]*?)```/);
+                        const code = match ? match[2] : seg.replace(/```/g, '');
+                        const lang = match ? match[1] : '';
+                        return (
+                            <div key={idx} className="relative group my-3 border border-[#30363d] rounded-lg overflow-hidden">
+                                <div className="bg-[#161b22] px-3 py-1.5 flex justify-between items-center text-xs text-[#858585] border-b border-[#30363d]">
+                                    <span>{lang}</span>
+                                    <button onClick={() => replaceEditorCode(code)} className="flex items-center gap-1 hover:text-emerald-400 transition-colors">
+                                        <i data-lucide="play" className="w-3 h-3"></i> Apply to Editor
+                                    </button>
+                                </div>
+                                <div className="p-3 bg-[#0d1117] overflow-x-auto text-sm font-mono text-gray-300 whitespace-pre">{code}</div>
+                            </div>
+                        );
+                    }
+                    return <div key={idx} className="chat-markdown text-sm text-gray-300" dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(seg) : seg }}></div>;
+                });
+            };
+
+            return (
+                <div className="flex flex-col h-full w-full relative">
+                    <input type="file" ref={folderInputRef} multiple webkitdirectory="true" directory="true" style={{ display: 'none' }} onChange={handleFallbackFolderSelect} />
+                    
+                    {/* Top Menu Bar */}
+                    <div className="h-9 shrink-0 flex items-center px-4 justify-between" style={{ backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}>
+                        <div className="flex items-center gap-4 text-xs">
+                            <i data-lucide="monitor-stop" className="w-4 h-4 text-emerald-500"></i>
+                            <span className="font-semibold text-gray-300 hidden sm:inline">Cursor Clone <span className="text-emerald-500 px-1">Pro</span></span>
+                            
+                            {/* Menus */}
+                            <div className="flex gap-2 ml-4 text-[#cccccc] relative">
+                                <div className="relative">
+                                    <div onClick={(e) => toggleMenu(e, 'file')} className={`px-2 py-1 cursor-pointer rounded ${activeMenu==='file'?'bg-[#37373d]':'hover:bg-[#2a2d2e]'}`}>File</div>
+                                    {activeMenu === 'file' && (
+                                        <div className="dropdown">
+                                            <div onClick={handleCreateFile} className="dropdown-item"><span>New File</span></div>
+                                            <div onClick={handleOpenFolder} className="dropdown-item"><span>Open Folder...</span><span className="dropdown-shortcut">Ctrl+O</span></div>
+                                            <div className="border-t border-[#333] my-1"></div>
+                                            <div onClick={handleSaveFile} className="dropdown-item"><span>Save</span><span className="dropdown-shortcut">Ctrl+S</span></div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <div onClick={(e) => toggleMenu(e, 'edit')} className={`px-2 py-1 cursor-pointer rounded ${activeMenu==='edit'?'bg-[#37373d]':'hover:bg-[#2a2d2e]'}`}>Edit</div>
+                                    {activeMenu === 'edit' && (
+                                        <div className="dropdown">
+                                            <div onClick={() => { if(globalEditorInstance) globalEditorInstance.trigger('keyboard', 'undo', null); }} className="dropdown-item"><span>Undo</span><span className="dropdown-shortcut">Ctrl+Z</span></div>
+                                            <div onClick={() => { if(globalEditorInstance) globalEditorInstance.trigger('keyboard', 'redo', null); }} className="dropdown-item"><span>Redo</span><span className="dropdown-shortcut">Ctrl+Y</span></div>
+                                            <div className="border-t border-[#333] my-1"></div>
+                                            <div onClick={handleFormatDocument} className="dropdown-item"><span>Format Document</span><span className="dropdown-shortcut">Alt+Shift+F</span></div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <div onClick={(e) => toggleMenu(e, 'terminal')} className={`px-2 py-1 cursor-pointer rounded ${activeMenu==='terminal'?'bg-[#37373d]':'hover:bg-[#2a2d2e]'}`}>Terminal</div>
+                                    {activeMenu === 'terminal' && (
+                                        <div className="dropdown">
+                                            <div onClick={() => setTerminalOpen(!terminalOpen)} className="dropdown-item"><span>{terminalOpen?'Close':'New'} Terminal</span><span className="dropdown-shortcut">Ctrl+J</span></div>
+                                            <div onClick={clearTerminal} className="dropdown-item"><span>Clear Terminal</span></div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <div onClick={(e) => toggleMenu(e, 'help')} className={`px-2 py-1 cursor-pointer rounded ${activeMenu==='help'?'bg-[#37373d]':'hover:bg-[#2a2d2e]'}`}>Help</div>
+                                    {activeMenu === 'help' && (
+                                        <div className="dropdown">
+                                            <div onClick={() => { setShowInstructions(true); setActiveMenu(null); }} className="dropdown-item"><span>📖 Ishlatish Yo'riqnomasi</span><span className="dropdown-shortcut">F1</span></div>
+                                            <div onClick={checkApiLimits} className="dropdown-item"><span>Diagnose AI API Limits</span><span className="dropdown-shortcut">Ping</span></div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-gray-500 font-mono border border-gray-700 px-2 rounded hidden lg:inline">{selectedModel.replace('models/','')}</span>
+                            <button onClick={() => setShowSettings(true)} className="text-[#858585] hover:text-white" title="Keys/Model Settings">
+                                <i data-lucide="settings" className="w-4 h-4"></i>
+                            </button>
+                            <button onClick={() => setChatOpen(!chatOpen)} className={`text-[#858585] hover:text-white ${chatOpen ? 'text-emerald-500' : ''}`} title="Toggle AI Panel (Ctrl+L)">
+                                <i data-lucide="layout-panel-right" className="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* Left Sidebar */}
+                        <div className="w-64 shrink-0 flex flex-col" style={{ backgroundColor: 'var(--bg-sidebar)', borderRight: '1px solid var(--border-color)' }}>
+                            <div className="px-4 py-2 text-xs font-bold text-[#858585] uppercase tracking-wider flex justify-between items-center group cursor-pointer hover:text-white" onClick={handleOpenFolder}>
+                                EXPLORER
+                                <div className="flex gap-2">
+                                    <button onClick={(e) => { e.stopPropagation(); handleCreateFile(); }} className="opacity-0 group-hover:opacity-100 hover:text-emerald-400" title="New File"><i data-lucide="file-plus-2" className="w-3.5 h-3.5"></i></button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                {!workspaceHandle ? (
+                                    <div className="p-4 flex flex-col gap-4 text-center items-center mt-4 border border-dashed border-gray-700 mx-4 rounded-lg my-4">
+                                        <p className="text-xs text-[#858585]">Loyiha topilmadi</p>
+                                        <button onClick={handleOpenFolder} className="bg-[#007acc] hover:bg-[#005f9e] text-white text-xs px-4 py-2 rounded transition-all w-full">Open Folder</button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col py-1">
+                                        <div className="px-4 py-1.5 text-xs font-bold text-[#007acc] flex items-center gap-2">
+                                            <i data-lucide="folder-open" className="w-3.5 h-3.5"></i>
+                                            {workspaceHandle.name.toUpperCase()}
+                                        </div>
+                                        {files.map(f => (
+                                            <div 
+                                                key={f.name} onClick={() => handleOpenFile(f)}
+                                                className={`pl-9 pr-4 py-1 flex items-center gap-2 cursor-pointer text-[13px] ${activeFileHandle?.name === f.name ? 'bg-[#37373d] text-white border-l-2 border-[#007acc]' : 'text-[#cccccc] hover:bg-[#2a2d2e] border-l-2 border-transparent'}`}
+                                            >
+                                                <span className={activeFileHandle?.name===f.name?'text-[#519aba]':'text-gray-500'}><i data-lucide="file-code" className="w-3.5 h-3.5"></i></span>
+                                                <span className="truncate">{f.name}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Middle Area */}
+                        <div className="flex-1 flex flex-col min-w-0" style={{ backgroundColor: 'var(--bg-base)' }}>
+                            <div className="flex-1 flex flex-col relative overflow-hidden">
+                                <div className="h-9 flex shrink-0 justify-between items-center pr-2" style={{ backgroundColor: 'var(--bg-panel)' }}>
+                                    <div className="flex items-center gap-2 px-4 border-r border-[#1e1e1e] border-t-2 border-t-[#007acc] bg-[#1e1e1e] text-[13px] text-white cursor-pointer select-none h-full">
+                                        <i data-lucide="file-code-2" className="w-3.5 h-3.5 text-[#519aba]"></i>
+                                        {activeFileName}
+                                        {isUnsaved && <span className="w-2 h-2 rounded-full bg-white ml-2 opacity-50"></span>}
+                                    </div>
+                                    
+                                    {(activeFileName.toLowerCase().endsWith('.html') || activeFileName.toLowerCase().endsWith('.htm')) && (
+                                        <button onClick={handleRunCode} className="text-xs flex items-center gap-1.5 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-600 hover:text-white px-3 py-1 rounded transition-colors border border-emerald-500/30">
+                                            <span>▶</span> Jonli Ko'rish (Run)
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex-1 overflow-hidden relative">
+                                    <CodeEditor content={activeContent} language={determineLanguage(activeFileName)} onChange={(val) => { setActiveContent(val); setIsUnsaved(true); }} />
+                                </div>
+                            </div>
+                            
+                            {terminalOpen && (
+                                <div className="h-48 shrink-0 flex flex-col border-t" style={{ backgroundColor: '#1e1e1e', borderColor: 'var(--border-color)' }}>
+                                    <div className="h-8 flex items-center justify-between px-4 border-b border-[#30363d] bg-[#252526] select-none">
+                                        <div className="flex gap-4 text-xs font-bold tracking-widest uppercase">
+                                            <span className="text-[#cccccc] border-b border-transparent hover:text-white cursor-pointer">Problems</span>
+                                            <span className="text-[#cccccc] border-b border-[#007acc] hover:text-white cursor-pointer px-1">Terminal</span>
+                                        </div>
+                                        <div className="flex gap-2 text-[#858585]">
+                                            <button onClick={clearTerminal} className="hover:text-white" title="Kill Terminal"><i data-lucide="trash-2" className="w-3.5 h-3.5"></i></button>
+                                            <button onClick={() => setTerminalOpen(false)} className="hover:text-white" title="Close Panel"><i data-lucide="x" className="w-3.5 h-3.5"></i></button>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 p-2 overflow-y-auto font-mono text-[12px] bg-[#1e1e1e] custom-scrollbar">
+                                        {terminalLogs.map((log, i) => (
+                                            <div key={i} className={`flex gap-3 my-0.5 ${log.type==='error'?'text-red-400':log.type==='success'?'text-emerald-400':log.type==='warn'?'text-yellow-400':log.type==='system'?'text-blue-400':'text-gray-300'}`}>
+                                                <span className="text-[#858585] shrink-0 opacity-50">[{log.time}]</span>
+                                                <span className="whitespace-pre-wrap">{log.text}</span>
+                                            </div>
+                                        ))}
+                                        <div ref={terminalEndRef} />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="h-6 shrink-0 flex items-center px-4 justify-between" style={{ backgroundColor: '#007acc', color: 'white', fontSize: '11px' }}>
+                                <div className="flex items-center gap-4">
+                                    <span className="flex items-center gap-1 cursor-pointer hover:bg-white/20 px-1 rounded transition-colors" title="Branch"><i data-lucide="git-branch" className="w-3 h-3"></i> main</span>
+                                    <span className="flex items-center gap-1 cursor-pointer hover:bg-white/20 px-1 rounded transition-colors" title="Errors"><i data-lucide="x-circle" className="w-3 h-3"></i> 0</span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <span className="flex items-center gap-1 cursor-pointer hover:bg-white/20 px-1 rounded" title="AI Status"><i data-lucide="check-circle-2" className="w-3 h-3 text-green-300"></i> Cursor AI (Online)</span>
+                                    <span className="cursor-pointer hover:bg-white/20 px-1 rounded">{determineLanguage(activeFileName).toUpperCase()}</span>
+                                    <span className="cursor-pointer hover:bg-white/20 px-1 rounded">UTF-8</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Sidebar Chat */}
+                        {chatOpen && (
+                            <div className="w-80 lg:w-96 shrink-0 flex flex-col border-l" style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-color)' }}>
+                                <div className="p-3 border-b border-[#30363d] flex justify-between items-center bg-[#252526]">
+                                    <span className="text-sm font-bold flex items-center gap-2 uppercase tracking-widest text-[#cccccc]">
+                                        <span className={`${showChatHistory?'text-indigo-400':'text-emerald-500'} ${isGenerating ? 'pulse-anim' : ''}`}><i data-lucide="sparkles" className="w-4 h-4"></i></span>
+                                        {showChatHistory ? "Chat History" : "Gemini Copilot"}
+                                    </span>
+                                    
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => setShowChatHistory(!showChatHistory)} className={`text-[#858585] hover:text-white p-1 rounded transition-colors ${showChatHistory ? 'bg-[#37373d] text-white' : ''}`} title="Suhbatlar Tarixi"><i data-lucide="history" className="w-3.5 h-3.5"></i></button>
+                                        {!showChatHistory && (
+                                            <button onClick={handleNewChat} className="text-[#858585] hover:text-emerald-400 p-1 rounded transition-colors" title="Yangi Suhbat"><i data-lucide="plus" className="w-4 h-4"></i></button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {showChatHistory ? (
+                                    <div className="flex-1 overflow-y-auto p-3 custom-scrollbar flex flex-col gap-2">
+                                        <div onClick={handleNewChat} className="p-3 border border-dashed border-[#555] rounded-lg text-center text-[#999] hover:text-white hover:bg-white/5 cursor-pointer transition-colors flex justify-center items-center gap-2 text-sm font-bold mb-2">
+                                            <i data-lucide="plus" className="w-4 h-4 text-emerald-500"></i> Yangi Suhbat
+                                        </div>
+                                        {chatSessions.map(session => (
+                                            <div 
+                                                key={session.id} 
+                                                onClick={() => { setActiveSessionId(session.id); setShowChatHistory(false); }}
+                                                className={`p-3 rounded-lg border group cursor-pointer transition-colors flex justify-between items-center ${activeSessionId === session.id ? 'bg-[#37373d] border-[#007acc]' : 'border-transparent hover:bg-[#2a2d2e]'}`}
+                                            >
+                                                <div className="flex items-center gap-3 overflow-hidden text-sm text-[#cccccc]">
+                                                    <i data-lucide="message-square" className="w-4 h-4 text-[#858585] shrink-0"></i>
+                                                    <span className="truncate">{session.title}</span>
+                                                </div>
+                                                <button 
+                                                    onClick={(e) => handleDeleteSession(e, session.id)} 
+                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-[#858585] transition-opacity" 
+                                                    title="Suhbatni butunlay o'chirish"
+                                                >
+                                                    <i data-lucide="trash-2" className="w-3.5 h-3.5"></i>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Normal Chat View */}
+                                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-5">
+                                            {messages.map((msg, i) => (
+                                                <div key={i} className="flex flex-col gap-1.5 group">
+                                                    <div className="flex items-center justify-between text-[10px] font-bold uppercase text-[#858585]">
+                                                        <div className="flex items-center gap-1.5">
+                                                            {msg.role === 'user' ? (
+                                                                <span className="flex items-center gap-1.5"><i data-lucide="user" className="w-3 h-3 text-indigo-400"></i> YOU</span>
+                                                            ) : msg.role === 'error' ? (
+                                                                <span className="flex items-center gap-1.5 text-red-500"><i data-lucide="alert-triangle" className="w-3 h-3"></i> FAIL</span>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1.5"><i data-lucide="bot" className="w-3 h-3 text-emerald-500"></i> AI</span>
+                                                            )}
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => handleDeleteMessage(msg.id)}
+                                                            className="opacity-0 group-hover:opacity-100 text-[#858585] hover:text-red-400 transition-opacity"
+                                                            title="Ushbu xabarni o'chirish"
+                                                        >
+                                                            <i data-lucide="x" className="w-3 h-3"></i>
+                                                        </button>
+                                                    </div>
+                                                    <div className="pl-4">
+                                                        {renderMessage(msg)}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {isGenerating && (
+                                                <div className="flex items-center gap-2 text-xs text-emerald-500 font-mono ml-4">
+                                                    <i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> Processing...
+                                                </div>
+                                            )}
+                                            <div ref={chatEndRef} />
+                                        </div>
+
+                                        <div className="p-3 bg-[#1e1e1e]">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-[10px] bg-[#37373d] text-gray-300 px-2 py-0.5 rounded flex items-center gap-1 border border-[#454545]">
+                                                    <i data-lucide="code" className="w-3 h-3 text-indigo-400"></i> {activeFileName}
+                                                </span>
+                                            </div>
+                                            <div className="bg-[#2d2d2d] rounded-lg border border-[#3e3e42] focus-within:border-[#007acc] transition-colors flex flex-col">
+                                                <textarea 
+                                                    value={inputValue}
+                                                    onChange={e => setInputValue(e.target.value)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+                                                    }}
+                                                    placeholder="Ask code edits here... (Enter)"
+                                                    className="w-full bg-transparent text-sm text-gray-200 outline-none p-3 resize-none custom-scrollbar h-20"
+                                                ></textarea>
+                                                <div className="flex justify-between items-center p-2 border-t border-[#3e3e42] bg-[#252526]/50 rounded-b-lg">
+                                                    <div className="text-[10px] text-[#858585] font-mono px-2">Shift+Enter new line</div>
+                                                    <button 
+                                                        onClick={sendChat}
+                                                        disabled={!inputValue.trim() || isGenerating}
+                                                        className="bg-[#007acc] hover:bg-[#005f9e] disabled:opacity-30 disabled:grayscale text-white rounded px-3 py-1 text-xs transition-colors flex gap-1 items-center"
+                                                    >
+                                                        Send <i data-lucide="send-horizontal" className="w-3 h-3"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Instructions Modal overlay */}
+                    {showInstructions && (
+                        <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center backdrop-blur-sm">
+                            <div className="bg-[#1e1e1e] border border-[#30363d] shadow-2xl rounded-xl p-6 w-[550px] max-w-[95%] flex flex-col gap-4 animate-in">
+                                <h2 className="text-xl font-bold flex items-center gap-2 text-emerald-500">
+                                    <i data-lucide="book-open" className="w-5 h-5"></i> Dasturdan Foydalanish Yo'riqnomasi
+                                </h2>
+                                <div className="space-y-3 text-sm text-gray-300 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                                    <p>Ushbu maxsus kursor klonidan qanday foydalanish mumkin?</p>
+                                    
+                                    <div className="p-3 bg-black/30 rounded border border-[#30363d]">
+                                        <h3 className="text-emerald-400 font-bold mb-1">1. Dastlabki Sozlamalar</h3>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li>Yuqori o'ng burchakdagi ⚙️ (Settings) tugmasiga bosing.</li>
+                                            <li>Google AI Studio'dan olingan <b>Gemini API Kalitingizni</b> kiriting.</li>
+                                            <li>Agar limit to'ldisa, modelni qimmatroq modelga (Gemini 1.5 Pro) o'zgartiring.</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <div className="p-3 bg-black/30 rounded border border-[#30363d]">
+                                        <h3 className="text-[#007acc] font-bold mb-1">2. Loyihani Ochish (Fayllar bilan ishlash)</h3>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li><b>File menyusi (yoki Ctrl+O)</b> orqali "Open Folder" tugmasini bosing va lokal papkani tanlang.</li>
+                                            <li>Chap tarafda sizning fayllaringiz paydo bo'ladi. Birortasini tahrirlashingiz mumkin.</li>
+                                            <li><b>Yilgi Imkoniyatlar:</b> Bir nechta chat ochish, o'chirish (o'ng paneldagi '+' va soat ikonkalari orqali). Yoki faqat bitta no'to'g'ri chiqqan xabarni o'chirish (X ustiga bosib) endi juda oson!</li>
+                                        </ul>
+                                    </div>
+                                    
+                                    <div className="p-3 bg-black/30 rounded border border-[#30363d]">
+                                        <h3 className="text-indigo-400 font-bold mb-1">3. AI Copilot (Suxbat paneli - Ctrl+L)</h3>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            <li>Zudlik bilan yon panel o'ng tarafda AI ishlaydigan chatni ochadi. U "Kontekst" (ochiq fayl kodi) ni skan qiladi.</li>
+                                            <li>AI kod yozganda <b>"▶ Apply to Editor"</b> orqali asil faylga moslab qo'yasiz.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end mt-2">
+                                    <button onClick={() => setShowInstructions(false)} className="px-5 py-2 bg-[#007acc] hover:bg-[#005f9e] text-white rounded text-sm font-bold transition-colors shadow-lg">Tushunarli</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Settings Modal overlay */}
+                    {showSettings && (
+                        <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center backdrop-blur-sm">
+                            <div className="bg-[#1e1e1e] border border-[#30363d] shadow-2xl rounded-xl p-6 w-[400px] flex flex-col gap-6 animate-in">
+                                <h2 className="text-xl font-bold flex items-center gap-2 text-gray-200">
+                                    <i data-lucide="settings" className="w-5 h-5 text-emerald-500"></i> Settings & Engine
+                                </h2>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-[#858585] uppercase tracking-wider mb-2 block">Gemini API Key</label>
+                                        <input 
+                                            type="password" 
+                                            value={apiKey} 
+                                            onChange={e => setApiKey(e.target.value)}
+                                            placeholder="AIzaSy..." 
+                                            className="w-full p-2 bg-[#0d1117] border border-[#30363d] focus:border-[#007acc] rounded text-sm text-white font-mono outline-none transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-[#858585] uppercase tracking-wider mb-2 flex justify-between items-center">
+                                            AI Model
+                                            <span className="text-[9px] text-gray-500 font-normal normal-case">Dvigatel</span>
+                                        </label>
+                                        <select 
+                                            value={selectedModel} 
+                                            onChange={e => switchModel(e.target.value)}
+                                            className="w-full p-2 bg-[#0d1117] border border-[#30363d] focus:border-[#007acc] rounded text-sm text-white outline-none cursor-pointer"
+                                        >
+                                            <option value="models/gemini-2.5-flash">Gemini 2.5 Flash (Fast)</option>
+                                            <option value="models/gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                            <option value="models/gemini-1.5-pro">Gemini 1.5 Pro (Powerful)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end gap-3 pt-2">
+                                    {localStorage.getItem('gemini_cursor_key') && (
+                                        <button onClick={() => setShowSettings(false)} className="px-4 py-2 rounded text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors">Yopish</button>
+                                    )}
+                                    <button 
+                                        onClick={() => {
+                                            localStorage.setItem('gemini_cursor_key', apiKey.trim());
+                                            setShowSettings(false);
+                                            checkApiLimits();
+                                        }} 
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-bold transition-colors"
+                                    >
+                                        Saqlash va Tekshirish
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Global Error Boundary to prevent complete DOM Unmounting (Black screens) 
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) { return { hasError: true, error }; }
+            componentDidCatch(error, errorInfo) { console.error("REACT CRASH ERROR:", error, errorInfo); }
+            render() {
+                if (this.state.hasError) {
+                    return <div className="p-8 text-red-400 font-mono bg-[#1e1e1e] h-screen w-screen overflow-auto">
+                        <h1 className="text-2xl font-bold mb-4">React Framework Exception Dastur quladi!</h1>
+                        <p className="mb-4">Nimadir funksiya noto'g'ri ishlab, interfeysni buzib qo'ydi. "Fayllarni ajratish" vaqtida shunday xolat uchrashi mumkin.</p>
+                        <pre className="p-4 bg-black/50 rounded mb-4 overflow-x-auto text-sm">{this.state.error.stack || this.state.error.message}</pre>
+                        <button onClick={() => window.location.reload()} className="px-5 py-2 bg-[#007acc] text-white hover:bg-[#005f9e] rounded transition">Sahifani yangilash joriy holatga qaytish</button>
+                    </div>;
+                }
+                return this.props.children; 
+            }
+        }
+
+        try {
+            const root = ReactDOM.createRoot(document.getElementById('root'));
+            root.render(<ErrorBoundary><App /></ErrorBoundary>);
+        } catch (error) {
+            document.getElementById('root').innerHTML = `<div style="color:red; padding:20px; font-family:monospace;"><b>CRITICAL BOOT ERROR:</b><br/>${error.stack || error.message}</div>`;
+            console.error(error);
+        }
+    </script>
+</body>
+</html>

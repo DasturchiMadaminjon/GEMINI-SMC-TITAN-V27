@@ -1,0 +1,96 @@
+# ================================================================
+# GEMINI SMC TITAN V27.2 | FULL MASTER CONFIGURATION
+# ================================================================
+
+# --- TRADING INSTRUMENTLAR ---
+symbols:
+  - "XAU/USD"
+  - "EUR/USD"
+  - "GBP/USD"
+  - "BTC/USDT"
+  - "ETH/USDT"
+  - "XRP/USDT"
+  - "USD/JPY"
+  - "USD/CAD"
+  - "USD/CHF"
+  - "AUD/USD"
+  - "NZD/USD"
+
+timeframe: "15m"
+
+# --- RISK MENEJMENT (Jami 2% qoidasi) ---
+trend:
+  risk_perc: 2.0             # Har bir bitim uchun risk
+  fibo_split_enabled: true    # 0.5 va 0.618 darajalarga bo'lish
+  use_trail: true            # Trailing Stop-Loss
+  trail_atr: 1.5             # ATR masofasi
+  max_bars_forex: 120        # Maksimal kutish vaqti
+
+# --- SMC PARAMETRLARI ---
+smc:
+  min_quality: 75.0
+  swing_len: 5
+  pivot_window: 5
+  ob_strength: 1.5
+  signal_mode: "Faqat BOS"
+  fibo_target_tp2: 1.618
+
+# --- TAKE PROFIT ---
+tp:
+  tp1_mult: 1.0
+  tp2_mult: 2.0
+  tp3_mult: 3.5
+  breakeven_tp: 1
+
+# --- SESSION FILTER ---
+session:
+  enabled: true
+  london_start: "08:00"
+  london_end:   "16:00"
+  ny_start:     "13:00"
+  ny_end:       "20:00"
+
+# --- FILTERS ---
+filters:
+  use_volume: true
+  vol_mult_forex: 1.8
+  vol_mult_crypto: 1.5
+  use_rsi: true
+  rsi_long_max: 62
+  rsi_short_min: 38
+  min_volat_mult: 0.5
+
+# --- EXCHANGE/DATA SOURCE ---
+exchange:
+  name: "yahoo"
+  testnet: true
+  api_key: ""
+  api_secret: ""
+
+# --- MT5 TERMINAL ---
+mt5:
+  enabled: false
+
+# --- TELEGRAM SOZLAMALARI ---
+telegram:
+  enabled: true
+  bot_token: "8672328200:AAHfYFj3QvnlNnKmuVwe2nzgHmRnvmyTZh4"
+  chat_id: 
+    - 7295947374
+    - 5193211686
+
+# --- LOGGING ---
+log:
+  level: "INFO"
+  file: "logs/bot.log"
+  max_size_mb: 20
+
+# --- GEMINI AI SOZLAMALARI ---
+gemini_ai:
+  enabled: true
+  
+  # MULTI-API TIZIMI — Barcha haqiqiy kalitlar .env faylidan okunadi!
+  api_keys: []
+
+  api_key: ""
+  model: "gemini-2.5-flash"  # ✅ Auto-detect tomonidan aniqlanadi (2.5-flash)
